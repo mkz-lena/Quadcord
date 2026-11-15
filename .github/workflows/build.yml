@@ -18,9 +18,6 @@ jobs:
         run: |
           set -eux
 
-          # The upstream Linux release requires a newer glibc/libstdc++ than
-          # the devkitARM container provides. Build it in this container so
-          # the resulting executable uses compatible system libraries.
           mkdir -p /tmp/cmake /tmp/bannertool-src
           curl --fail --location --silent --show-error \
             https://github.com/Kitware/CMake/releases/download/v3.28.6/cmake-3.28.6-linux-x86_64.tar.gz \
@@ -39,12 +36,19 @@ jobs:
           test -x /tmp/bt/bin/bannertool
           echo /tmp/bt/bin >> "$GITHUB_PATH"
 
+      - name: Install 3DS packaging tools
+        run: |
+          set -eux
+          dkp-pacman -S --needed --noconfirm 3ds-cia-tools 3ds-smdhtool
+
       - name: Build
         env:
           DEVKITARM: /opt/devkitpro/devkitARM
           PATH: /tmp/bt/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:/usr/bin:/bin
         run: |
-          make -j$(nproc)
+          command -v makerom
+          command -v smdhtool
+          make -j"$(nproc)"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
