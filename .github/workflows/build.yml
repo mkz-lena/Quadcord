@@ -21,11 +21,12 @@ jobs:
       - name: Install bannertool
         run: |
           mkdir -p /tmp/bt
-          curl -sL "https://github.com/Steveice10/bannertool/releases/download/1.2.0/bannertool-1.2.0-linux.zip" -o /tmp/bt/bt.zip || true
-          cd /tmp/bt && (unzip -o bt.zip 2>/dev/null || true)
+          curl -sL "https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz" -o /tmp/bt/bt.tar.gz
+          tar -xzf /tmp/bt/bt.tar.gz -C /tmp/bt
+          find /tmp/bt -name bannertool -type f -exec chmod +x {} \;
+          echo "/tmp/bt" >> $GITHUB_PATH
           ls /tmp/bt
-          export PATH="/tmp/bt:$PATH"
-          which bannertool || echo "bannertool not found, build may fail"
+          which bannertool || find /tmp/bt -name bannertool
 
       - name: Build
         env:
