@@ -29,7 +29,7 @@ include $(DEVKITARM)/3ds_rules
 #     - icon.png
 #     - <libctru folder>/default_icon.png
 #---------------------------------------------------------------------------------
-TARGET		:=	TriCord
+TARGET		:=	Quadcord
 BUILD		:=	build
 SOURCES		:=	source source/core source/network source/discord source/ui source/ui/forum source/utils library/qrcodegen \
 			library/mlspp/src library/mlspp/hpke_src \
