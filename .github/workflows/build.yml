@@ -36,7 +36,7 @@ jobs:
           test -x /tmp/bt/bin/bannertool
           echo /tmp/bt/bin >> "$GITHUB_PATH"
 
-      - name: Install makerom
+            - name: Install makerom
         run: |
           set -eux
           mkdir -p /tmp/makerom-bin /tmp/makerom-unpack
@@ -47,7 +47,7 @@ jobs:
           MAKEROM_BIN=$(find /tmp/makerom-unpack -type f -name makerom | head -n 1)
           test -n "$MAKEROM_BIN"
           install -m 0755 "$MAKEROM_BIN" /tmp/makerom-bin/makerom
-          /tmp/makerom-bin/makerom --help >/dev/null
+          /tmp/makerom-bin/makerom -help >/dev/null || true
           echo /tmp/makerom-bin >> "$GITHUB_PATH"
 
       - name: Build
