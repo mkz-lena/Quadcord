@@ -36,15 +36,24 @@ jobs:
           test -x /tmp/bt/bin/bannertool
           echo /tmp/bt/bin >> "$GITHUB_PATH"
 
-      - name: Install 3DS packaging tools
+      - name: Install makerom
         run: |
           set -eux
-          dkp-pacman -Sy --needed --noconfirm 3ds-tools
+          mkdir -p /tmp/makerom-bin /tmp/makerom-unpack
+          curl --fail --location --silent --show-error \
+            https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.3/makerom-v0.18.3-ubuntu_x86_64.zip \
+            -o /tmp/makerom.zip
+          unzip -q /tmp/makerom.zip -d /tmp/makerom-unpack
+          MAKEROM_BIN=$(find /tmp/makerom-unpack -type f -name makerom | head -n 1)
+          test -n "$MAKEROM_BIN"
+          install -m 0755 "$MAKEROM_BIN" /tmp/makerom-bin/makerom
+          /tmp/makerom-bin/makerom --help >/dev/null
+          echo /tmp/makerom-bin >> "$GITHUB_PATH"
 
       - name: Build
         env:
           DEVKITARM: /opt/devkitpro/devkitARM
-          PATH: /tmp/bt/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:/usr/bin:/bin
+          PATH: /tmp/makerom-bin:/tmp/bt/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:/usr/bin:/bin
         run: |
           command -v makerom
           command -v smdhtool
