@@ -39,7 +39,7 @@ jobs:
       - name: Install 3DS packaging tools
         run: |
           set -eux
-          dkp-pacman -S --needed --noconfirm 3ds-cia-tools 3ds-smdhtool
+          dkp-pacman -Sy --needed --noconfirm 3ds-tools
 
       - name: Build
         env:
