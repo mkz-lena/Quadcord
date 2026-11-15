@@ -14,10 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install packages
-        run: |
-          dkp-pacman -Sy --noconfirm 3ds-curl
-
       - name: Install bannertool
         run: |
           mkdir -p /tmp/bt
