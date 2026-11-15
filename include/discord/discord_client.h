@@ -198,6 +198,8 @@ class DiscordClient {
 	void fetchMessage(const std::string &channelId, const std::string &messageId, SingleMessageCallback cb);
 	void sendMessage(const std::string &channelId, const std::string &content, SendMessageCallback cb = nullptr,
 	                 const std::string &nonce = "");
+	void sendFile(const std::string &channelId, const std::string &filePath, const std::string &content,
+	              SendMessageCallback cb = nullptr);
 	void sendMessageAsync(const std::string &channelId, const std::string &content, SuccessCallback cb);
 	void sendReply(const std::string &channelId, const std::string &content, const std::string &replyId,
 	               SendMessageCallback cb = nullptr, const std::string &nonce = "");
@@ -214,6 +216,7 @@ class DiscordClient {
 	void fetchGuildDetails(const std::string &guildId, std::function<void(bool)> cb = nullptr);
 	void fetchUserProfile(const std::string &userId);
 	UserProfile getUserProfile(const std::string &userId);
+	std::map<std::string, UserStatus> presenceMap;
 	void exchangeTicketForToken(const std::string &ticket, TokenCallback cb);
 	// Replies arrive as Guild Members Chunk, not to the caller.
 	void requestMembers(const std::string &guildId, const std::vector<std::string> &userIds);
@@ -251,7 +254,8 @@ class DiscordClient {
 	void markChannelRead(const std::string &channelId, const std::string &messageId);
 	void markChannelReadLatest(const std::string &channelId, const std::string &seenMessageId = "");
 	void markGuildRead(const std::string &guildId);
-	void updatePresence(UserStatus status);
+	void updatePresence(UserStatus status, const std::string &customStatus = "");
+	UserStatus getUserStatus(const std::string &userId);
 	void setGuildMuted(const std::string &guildId, bool muted, int timeWindowMinutes);
 	void setChannelMuted(const std::string &channelId, bool muted, int timeWindowMinutes);
 	// messageNotifications: 0=all, 1=mentions, 2=none (3=inherit, channel only)

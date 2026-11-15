@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
 	}
 
 	Logger::init();
-	Logger::log("TriCord - Discord for 3DS starting...");
+	Logger::log("Quadcord - Discord for 3DS starting...");
 	Logger::log("[Mem] app region %luKB (free %luKB), heap %luKB, linear %luKB (free %luKB)",
 	            (unsigned long)(osGetMemRegionSize(MEMREGION_APPLICATION) / 1024),
 	            (unsigned long)(osGetMemRegionFree(MEMREGION_APPLICATION) / 1024),

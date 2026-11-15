@@ -1,4 +1,5 @@
 #include "ui/settings_screen.h"
+#include "discord/discord_client.h"
 #include "core/config.h"
 #include "core/i18n.h"
 #include "log.h"
@@ -12,7 +13,9 @@ namespace UI {
 
 SettingsScreen::SettingsScreen()
     : selectedIndex(0), scrollOffset(0.0f), repeatTimer(0), lastKey(0), isDeveloperMode(false), popupActive(false),
-      popupSelectedIndex(0), activePopupItem(nullptr), popupScrollOffset(0.0f) {}
+      popupSelectedIndex(0), activePopupItem(nullptr), popupScrollOffset(0.0f) {
+	customKeyboard = std::make_unique<CustomKeyboard>();
+}
 
 SettingsScreen::~SettingsScreen() {}
 
@@ -116,6 +119,29 @@ void SettingsScreen::onEnter() {
 	};
 	timezone.onUpdate = [](int val) { Config::getInstance().setTimezoneOffset(val); };
 	allItems.push_back(timezone);
+
+	SettingItem nitroColors;
+	nitroColors.label = "Profile Colors";
+	nitroColors.description = "Show users' profile colors on names";
+	nitroColors.type = SettingItemType::TOGGLE;
+	nitroColors.value = Config::getInstance().isNitroColorsEnabled() ? 1 : 0;
+	nitroColors.min = 0;
+	nitroColors.max = 1;
+	nitroColors.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
+	nitroColors.onUpdate = [](int val) { Config::getInstance().setNitroColorsEnabled(val == 1); };
+	allItems.push_back(nitroColors);
+
+	SettingItem customStatus;
+	customStatus.label = "Custom Status";
+	customStatus.description = "Set a custom status message";
+	customStatus.type = SettingItemType::ACTION;
+	customStatus.action = [this]() {
+		customKeyboard->open(Config::getInstance().getCustomStatus(), -1, false);
+		customKeyboard->setNitro(false);
+		keyboardActive = true;
+		keyboardMode = 3; // custom status
+	};
+	allItems.push_back(customStatus);
 
 	// APPEARANCE
 	allItems.push_back({TR("settings.section.appearance"), "", SettingItemType::SECTION_HEADER});
@@ -225,7 +251,6 @@ void SettingsScreen::onEnter() {
 	fileLogging.max = 1;
 	fileLogging.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
 	fileLogging.onUpdate = [](int val) { Config::getInstance().setFileLoggingEnabled(val == 1); };
-	fileLogging.isDeveloper = true;
 	allItems.push_back(fileLogging);
 
 	refreshVisibleItems();
@@ -290,6 +315,34 @@ void SettingsScreen::onExit() { Logger::log("[SettingsScreen] Exited"); }
 
 void SettingsScreen::update() {
 	u32 kDown = hidKeysDown();
+	if (keyboardActive && customKeyboard) {
+		if (customKeyboard->isFinished()) {
+			if (customKeyboard->isConfirmed()) {
+				std::string q = customKeyboard->getResult();
+				if (keyboardMode == 3) {
+					Config::getInstance().setCustomStatus(q);
+					Discord::DiscordClient::getInstance().updatePresence(Discord::UserStatus::ONLINE, q);
+					ScreenManager::getInstance().showToast("Status set: " + q);
+				} else if (q == "devmode" && !isDeveloperMode) {
+					isDeveloperMode = true;
+					searchQuery = "";
+					ScreenManager::getInstance().showToast("!!! Avoid use without a specific reason !!!");
+				} else {
+					searchQuery = q;
+				}
+				selectedIndex = 0;
+				scrollOffset = 0.0f;
+				refreshVisibleItems();
+			}
+			keyboardActive = false;
+		} else {
+			u32 kHeld = hidKeysHeld();
+			u32 kUp = hidKeysUp();
+			customKeyboard->update(kDown, kHeld, kUp);
+			return;
+		}
+	}
+
 	u32 kHeld = hidKeysHeld();
 
 	if (kDown & (KEY_DOWN | KEY_UP)) {
@@ -343,25 +396,9 @@ void SettingsScreen::update() {
 	}
 
 	if (kDown & KEY_Y) {
-		SwkbdState swkbd;
-		swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 1, -1);
-		swkbdSetFeatures(&swkbd, SWKBD_PREDICTIVE_INPUT | SWKBD_DARKEN_TOP_SCREEN);
-		swkbdSetHintText(&swkbd, "Search Settings");
-		char resultText[256] = {0};
-		SwkbdButton button = swkbdInputText(&swkbd, resultText, sizeof(resultText));
-		if (button == SWKBD_BUTTON_CONFIRM) {
-			std::string query(resultText);
-			if (query == "devmode" && !isDeveloperMode) {
-				isDeveloperMode = true;
-				searchQuery = "";
-				ScreenManager::getInstance().showToast("!!! Avoid use without a specific reason !!!");
-			} else {
-				searchQuery = query;
-			}
-			selectedIndex = 0;
-			scrollOffset = 0.0f;
-			refreshVisibleItems();
-		}
+		customKeyboard->open(searchQuery, -1, false);
+		customKeyboard->setNitro(false);
+		keyboardActive = true;
 		return;
 	}
 
@@ -604,6 +641,10 @@ void SettingsScreen::renderTop(C3D_RenderTarget *target) {
 }
 
 void SettingsScreen::renderBottom(C3D_RenderTarget *target) {
+	if (keyboardActive && customKeyboard) {
+		customKeyboard->render(target);
+		return;
+	}
 	C2D_TargetClear(target, ScreenManager::colorBackgroundDark());
 	C2D_SceneBegin(target);
 

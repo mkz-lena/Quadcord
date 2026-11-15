@@ -242,6 +242,22 @@ void Config::loadSettings() {
 			if (doc.HasMember("show_hidden_channels") && doc["show_hidden_channels"].IsBool()) {
 				showHiddenChannels = doc["show_hidden_channels"].GetBool();
 			}
+			if (doc.HasMember("nitro_colors") && doc["nitro_colors"].IsBool()) {
+				nitroColorsEnabled = doc["nitro_colors"].GetBool();
+			} else {
+				nitroColorsEnabled = true;
+			}
+			if (doc.HasMember("custom_status") && doc["custom_status"].IsString()) {
+				customStatus = doc["custom_status"].GetString();
+			}
+			if (doc.HasMember("recent_emojis") && doc["recent_emojis"].IsArray()) {
+				recentEmojis.clear();
+				for (auto it = doc["recent_emojis"].Begin(); it != doc["recent_emojis"].End(); ++it) {
+					if (it->IsString()) {
+						recentEmojis.push_back(it->GetString());
+					}
+				}
+			}
 			if (doc.HasMember("mic_volume") && doc["mic_volume"].IsInt()) {
 				micVolume = std::clamp(doc["mic_volume"].GetInt(), 0, 200);
 			}
@@ -295,6 +311,16 @@ void Config::saveSettings() {
 	writer.Bool(showServerIcons);
 	writer.Key("show_hidden_channels");
 	writer.Bool(showHiddenChannels);
+	writer.Key("nitro_colors");
+	writer.Bool(nitroColorsEnabled);
+	writer.Key("custom_status");
+	writer.String(customStatus.c_str());
+	writer.Key("recent_emojis");
+	writer.StartArray();
+	for (const auto &e : recentEmojis) {
+		writer.String(e.c_str());
+	}
+	writer.EndArray();
 	writer.Key("mic_volume");
 	writer.Int(micVolume);
 	writer.Key("user_volumes");
@@ -374,6 +400,35 @@ void Config::setShowServerIconsEnabled(bool enabled) {
 
 void Config::setShowHiddenChannelsEnabled(bool enabled) {
 	showHiddenChannels = enabled;
+	saveSettings();
+}
+
+void Config::setNitroColorsEnabled(bool enabled) {
+	nitroColorsEnabled = enabled;
+	saveSettings();
+}
+
+void Config::setCustomStatus(const std::string &s) {
+	customStatus = s;
+	saveSettings();
+}
+
+void Config::addRecentEmoji(const std::string &emoji) {
+	if (emoji.empty()) {
+		return;
+	}
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	recentEmojis.erase(std::remove(recentEmojis.begin(), recentEmojis.end(), emoji), recentEmojis.end());
+	recentEmojis.insert(recentEmojis.begin(), emoji);
+	if (recentEmojis.size() > 30) {
+		recentEmojis.resize(30);
+	}
+	saveSettings();
+}
+
+void Config::clearRecentEmojis() {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	recentEmojis.clear();
 	saveSettings();
 }
 

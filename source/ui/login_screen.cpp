@@ -57,6 +57,7 @@ std::string loginModeSwitchText(bool phoneLogin) { return TR(phoneLogin ? "login
 } // namespace
 
 LoginScreen::LoginScreen() : qrCodeSize(0), qrCodeGenerated(false), loadingAngle(0.0f), animTimer(0.0f) {
+	customKeyboard = std::make_unique<CustomKeyboard>();
 	statusMessage = Core::I18n::getInstance().get("login.status.initializing");
 }
 
@@ -104,6 +105,21 @@ void LoginScreen::onExit() {
 
 void LoginScreen::update() {
 	u32 kDown = hidKeysDown();
+
+	if (keyboardActive && customKeyboard) {
+		if (customKeyboard->isFinished()) {
+			if (customKeyboard->isConfirmed() && keyboardTarget) {
+				*keyboardTarget = customKeyboard->getResult();
+			}
+			keyboardActive = false;
+			keyboardTarget = nullptr;
+		} else {
+			u32 kHeld = hidKeysHeld();
+			u32 kUp = hidKeysUp();
+			customKeyboard->update(kDown, kHeld, kUp);
+			return;
+		}
+	}
 
 	if ((kDown & KEY_TOUCH) && !countryPicker.isOpen()) {
 		touchPosition touch;
@@ -220,36 +236,20 @@ void LoginScreen::update() {
 		} else if (phoneLogin && touched(touch, FIELD_X, COUNTRY_Y, FIELD_W, COUNTRY_H)) {
 			countryPicker.show();
 		} else if (phoneLogin && touched(touch, FIELD_X, layout.identifierY, FIELD_W, FIELD_H)) {
-			SwkbdState swkbd;
-			swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 16);
-			swkbdSetNumpadKeys(&swkbd, '+', 0);
-			swkbdSetHintText(&swkbd, TR("login.swkbd.phone").c_str());
-			swkbdSetInitialText(&swkbd, phone.c_str());
-			swkbdSetFeatures(&swkbd, SWKBD_DARKEN_TOP_SCREEN);
-			char buf[32];
-			if (swkbdInputText(&swkbd, buf, sizeof(buf)) == SWKBD_BUTTON_CONFIRM) {
-				phone = buf;
-			}
+			customKeyboard->open(phone, 16, false);
+			customKeyboard->setNitro(false);
+			keyboardActive = true;
+			keyboardTarget = &phone;
 		} else if (touched(touch, FIELD_X, layout.identifierY, FIELD_W, FIELD_H)) {
-			SwkbdState swkbd;
-			swkbdInit(&swkbd, SWKBD_TYPE_WESTERN, 2, -1);
-			swkbdSetHintText(&swkbd, TR("login.swkbd.email").c_str());
-			swkbdSetInitialText(&swkbd, email.c_str());
-			swkbdSetFeatures(&swkbd, SWKBD_DARKEN_TOP_SCREEN | SWKBD_DEFAULT_QWERTY);
-			char buf[256];
-			if (swkbdInputText(&swkbd, buf, sizeof(buf)) == SWKBD_BUTTON_CONFIRM) {
-				email = buf;
-			}
+			customKeyboard->open(email, -1, false);
+			customKeyboard->setNitro(false);
+			keyboardActive = true;
+			keyboardTarget = &email;
 		} else if (touched(touch, FIELD_X, layout.passwordY, FIELD_W, FIELD_H)) {
-			SwkbdState swkbd;
-			swkbdInit(&swkbd, SWKBD_TYPE_WESTERN, 2, -1);
-			swkbdSetHintText(&swkbd, TR("login.swkbd.password").c_str());
-			swkbdSetFeatures(&swkbd, SWKBD_DARKEN_TOP_SCREEN | SWKBD_DEFAULT_QWERTY);
-			swkbdSetPasswordMode(&swkbd, SWKBD_PASSWORD_HIDE_DELAY);
-			char buf[256];
-			if (swkbdInputText(&swkbd, buf, sizeof(buf)) == SWKBD_BUTTON_CONFIRM) {
-				password = buf;
-			}
+			customKeyboard->open(password, -1, false, true);
+			customKeyboard->setNitro(false);
+			keyboardActive = true;
+			keyboardTarget = &password;
 		} else if (touched(touch, FIELD_X, layout.loginButtonY, FIELD_W, LOGIN_BUTTON_H)) {
 			if (!(phoneLogin ? phone : email).empty() && !password.empty()) {
 				submitLogin(false);
@@ -360,6 +360,10 @@ void LoginScreen::renderTop(C3D_RenderTarget *target) {
 }
 
 void LoginScreen::renderBottom(C3D_RenderTarget *target) {
+	if (keyboardActive && customKeyboard) {
+		customKeyboard->render(target);
+		return;
+	}
 	C2D_TargetClear(target, ScreenManager::colorBackgroundDark());
 	C2D_SceneBegin(target);
 
@@ -636,13 +640,10 @@ void LoginScreen::submitPrompt() {
 
 void LoginScreen::updatePrompt(const touchPosition &touch) {
 	if (prompt != Prompt::UNDELETE && touched(touch, PROMPT_FIELD_X, PROMPT_INPUT_Y, PROMPT_FIELD_W, 30.0f)) {
-		SwkbdState swkbd;
-		swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 1, 8);
-		swkbdSetHintText(&swkbd, TR(prompt == Prompt::MFA ? "login.swkbd.mfa" : "login.swkbd.code").c_str());
-		char buf[16];
-		if (swkbdInputText(&swkbd, buf, sizeof(buf)) == SWKBD_BUTTON_CONFIRM) {
-			promptCode = buf;
-		}
+		customKeyboard->open(promptCode, 8, false);
+		customKeyboard->setNitro(false);
+		keyboardActive = true;
+		keyboardTarget = &promptCode;
 	} else if (touched(touch, PROMPT_FIELD_X, PROMPT_BUTTON_Y, PROMPT_FIELD_W, 32.0f)) {
 		submitPrompt();
 	} else if (offersSms() && touched(touch, PROMPT_FIELD_X, PROMPT_LINK_Y - 4.0f, PROMPT_FIELD_W, 20.0f)) {

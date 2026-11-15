@@ -449,7 +449,19 @@ bool ImageManager::retryAsStill(const std::string &url, Network::RequestPriority
 		}
 		fetchingUrls.erase(url);
 	}
-	prefetch(url, 0, 0, priority);
+	// Discord may serve an animated WebP for a .gif URL; retry via the media proxy
+	// asking for an actual GIF so our GIF decoder can handle it.
+	std::string retryUrl = url;
+	size_t cdnPos = retryUrl.find("cdn.discordapp.com/attachments/");
+	if (cdnPos != std::string::npos) {
+		retryUrl.replace(cdnPos, std::string("cdn.discordapp.com/attachments/").length(),
+		                 "media.discordapp.net/attachments/");
+		if (retryUrl.find("format=") == std::string::npos) {
+			retryUrl += (retryUrl.find('?') == std::string::npos ? "?" : "&");
+			retryUrl += "format=gif";
+		}
+	}
+	prefetch(retryUrl, 0, 0, priority);
 	return true;
 }
 

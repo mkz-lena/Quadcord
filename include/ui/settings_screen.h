@@ -1,6 +1,7 @@
 #ifndef SETTINGS_SCREEN_H
 #define SETTINGS_SCREEN_H
 
+#include "ui/custom_keyboard.h"
 #include "ui/screen_manager.h"
 #include <functional>
 #include <string>
@@ -33,6 +34,7 @@ class SettingsScreen : public Screen {
 	void update() override;
 	void renderTop(C3D_RenderTarget *target) override;
 	void renderBottom(C3D_RenderTarget *target) override;
+	bool hidesMenu() const override { return keyboardActive; }
 	void saveAndExit();
 
   private:
@@ -46,6 +48,9 @@ class SettingsScreen : public Screen {
 
 	std::string searchQuery;
 	bool isDeveloperMode;
+	std::unique_ptr<CustomKeyboard> customKeyboard;
+	bool keyboardActive = false;
+	int keyboardMode = 0;
 
 	bool popupActive;
 	int popupSelectedIndex;

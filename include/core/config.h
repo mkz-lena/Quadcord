@@ -6,7 +6,7 @@
 #define DISCORD_REMOTE_AUTH_URL "wss://remote-auth-gateway.discord.gg/?v=2"
 #define DISCORD_QR_BASE_URL "https://discord.com/ra/"
 
-#define APP_NAME "TriCord"
+#define APP_NAME "Quadcord"
 
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
@@ -14,7 +14,7 @@
 #define APP_VERSION                                                                                                    \
 	TOSTRING(APP_VERSION_MAJOR)                                                                                        \
 	"." TOSTRING(APP_VERSION_MINOR) "." TOSTRING(APP_VERSION_MICRO)
-#define APP_USER_AGENT "TriCord/" APP_VERSION " (Nintendo 3DS)"
+#define APP_USER_AGENT "Quadcord/" APP_VERSION " (Nintendo 3DS)"
 
 #define HTTP_TIMEOUT_SECONDS 30
 
@@ -126,6 +126,16 @@ class Config {
 	bool isShowHiddenChannelsEnabled() const { return showHiddenChannels; }
 	void setShowHiddenChannelsEnabled(bool enabled);
 
+	bool isNitroColorsEnabled() const { return nitroColorsEnabled; }
+	void setNitroColorsEnabled(bool enabled);
+
+	std::string getCustomStatus() const { return customStatus; }
+	void setCustomStatus(const std::string &s);
+
+	const std::vector<std::string> &getRecentEmojis() const { return recentEmojis; }
+	void addRecentEmoji(const std::string &emoji);
+	void clearRecentEmojis();
+
 	bool isDisclaimerAccepted() const { return disclaimerAccepted; }
 	void setDisclaimerAccepted(bool accepted);
 
@@ -155,6 +165,12 @@ class Config {
 	bool showAvatars;
 	bool showServerIcons;
 	bool showHiddenChannels;
+
+	bool nitroColorsEnabled = true;
+
+	std::string customStatus;
+
+	std::vector<std::string> recentEmojis;
 
 	int micVolume;
 	std::unordered_map<std::string, int> userVolumes;

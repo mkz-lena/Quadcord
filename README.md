@@ -1,10 +1,10 @@
-# TriCord
+# Quadcord
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 ![Platform](https://img.shields.io/badge/platform-Nintendo%203DS-red)
-![Downloads](https://img.shields.io/github/downloads/2b-zipper/TriCord/total?style=flat&color=blue)
+![Downloads](https://img.shields.io/github/downloads/2b-zipper/Quadcord/total?style=flat&color=blue)
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=flat&logo=discord&logoColor=white)](https://discord.gg/quYy9fK8tJ)
 
-Discord client for Nintendo 3DS.
+Discord client for Nintendo 3DS. (Quadcord is a fork of TriCord by 2ipper)
 
 ## Disclaimer
 
@@ -21,6 +21,16 @@ This software is provided **"as is"**, and you use it at your own risk. The use 
 ![hamburger](screenshots/3.png)
 ![chat](screenshots/4.png)
 
+## New in Quadcord (fork of TriCord)
+- Custom in-app keyboard (replaces the 3DS software keyboard) with emoji picker
+- Emoji picker shows recently used + per-server custom emojis (Nitro only)
+- File upload support (folder button, SD card browser)
+- Live top-screen updates while typing
+- Custom status support
+- Presence (online/idle/DND/offline) indicators on messages and DMs
+- Profile color support (Nitro/accent colors on names)
+- File logging toggle in settings
+
 ## Features
 - QR code and email/password authentication
 - Text messaging with emoji, attachments, embeds, reactions, and replies
@@ -29,8 +39,8 @@ This software is provided **"as is"**, and you use it at your own risk. The use 
 - Customizable [themes](THEME_FORMAT.md) and internationalization (EN/JA)
 
 ## Custom Themes
-TriCord supports custom themes. You can create your own theme by following the **[Theme Format Specification](THEME_FORMAT.md)**.
-Check out the [TriCord-Themes](https://github.com/2b-zipper/TriCord-Themes) repository for sample themes.
+Quadcord supports custom themes. You can create your own theme by following the **[Theme Format Specification](THEME_FORMAT.md)**.
+Check out the [Quadcord-Themes](https://github.com/mkz-lena/Quadcord-Themes) repository for sample themes.
 
 ## Installation
 1. Download the latest release (CIA or 3DSX)
@@ -46,12 +56,12 @@ Check out the [TriCord-Themes](https://github.com/2b-zipper/TriCord-Themes) repo
 **token.txt** — If you cannot use the above methods, you can log in using your Discord token:
 1. Create a file named `token.txt` at `sdmc:/3ds/TriCord/token.txt`
 2. Paste your Discord token inside (plain text, no extra whitespace)
-3. Launch TriCord — it will automatically read the token, log in, and delete the file
+3. Launch Quadcord — it will automatically read the token, log in, and delete the file
 
 > ⚠️ Never share your Discord token with anyone. Treat it like a password.
 
 ### ⚠️ Security Notice
-The account information is stored in `/3ds/TriCord/accounts`. **Although this file is encrypted, never share it with others.** Sharing this file may allow unauthorized access to your Discord account.
+The account information is stored in `/3ds/Quadcord/accounts`. **Although this file is encrypted, never share it with others.** Sharing this file may allow unauthorized access to your Discord account.
 
 ## Building from Source
 
@@ -61,12 +71,12 @@ The account information is stored in `/3ds/TriCord/accounts`. **Although this fi
 ### Build
 
 ```bash
-git clone https://github.com/2b-zipper/TriCord.git
-cd TriCord
+git clone https://github.com/mkz-lena/Quadcord.git
+cd Quadcord
 make -j$(nproc)
 ```
 
-Output: `TriCord.3dsx`, `TriCord.cia`, `TriCord.elf`
+Output: `Quadcord.3dsx`, `Quadcord.cia`, `Quadcord.elf`
 
 ## Libraries
 
@@ -120,18 +130,18 @@ This is due to the 3DS hardware limitations, so there is nothing I can do about 
 Feel free to ask in our [Discord server](https://discord.gg/quYy9fK8tJ).
 
 ### I found a bug
-Please report it by opening a [GitHub Issue](https://github.com/2b-zipper/TriCord/issues) or by visiting the bug-reports channel in our Discord server.
+Please report it by opening a [GitHub Issue](https://github.com/mkz-lena/Quadcord/issues) or by visiting the bug-reports channel in our Discord server.
 
 ### I want to add or improve a translation
-Please help us translate TriCord into your language on our [Crowdin project](https://crowdin.com/project/tricord). If your language is not listed, you can request it directly by clicking the "Request New Language" button on the Crowdin page.
+Please help us translate Quadcord into your language on our [Crowdin project](https://crowdin.com/project/tricord). If your language is not listed, you can request it directly by clicking the "Request New Language" button on the Crowdin page.
 
 ## License
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
-The license texts of TriCord and everything it ships with are in [romfs/licenses](romfs/licenses), which is embedded in the `.3dsx` and `.cia`.
+The license texts of Quadcord and everything it ships with are in [romfs/licenses](romfs/licenses), which is embedded in the `.3dsx` and `.cia`.
 
 ## Credits
-- [2b-zipper](https://github.com/2b-zipper) for the main development
+- [2b-zipper](https://github.com/2b-zipper) for the main development (TriCord)
 - [Str4ky](https://github.com/Str4ky) for the French translation
 - [AverageJohtonian](https://github.com/AverageJohtonian) for the Spanish translation
 - [RossoDev](https://github.com/RossoDev) for the Italian translation

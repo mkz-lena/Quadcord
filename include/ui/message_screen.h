@@ -4,6 +4,7 @@
 #include "discord/types.h"
 #include "ui/screen_manager.h"
 #include "ui/emoji_picker.h"
+#include "ui/custom_keyboard.h"
 #include "ui/markdown_renderer.h"
 #include <memory>
 #include <mutex>
@@ -150,6 +151,16 @@ class MessageScreen : public Screen {
 
 	bool isMenuOpen;
 	int menuIndex;
+	bool keyboardActive = false;
+	int keyboardMode = 0; // 0 compose, 1 reply, 2 edit
+	std::string keyboardEditId;
+
+	bool fileBrowserOpen = false;
+	std::string fileBrowserDir;
+	std::vector<std::string> fileBrowserEntries;
+	std::vector<bool> fileBrowserIsDir;
+	int fileBrowserIndex = 0;
+	int fileBrowserScroll = 0;
 	bool pollMode = false;
 	int pollAnswerIndex = 0;
 	bool componentMode = false;
@@ -185,6 +196,7 @@ class MessageScreen : public Screen {
 	BottomScreenMode bottomMode;
 
 	std::unique_ptr<EmojiPicker> emojiPicker;
+	std::unique_ptr<CustomKeyboard> customKeyboard;
 
 	void renderMenu();
 	std::unordered_set<std::string> getVisibleTwemojis();
@@ -241,6 +253,8 @@ class MessageScreen : public Screen {
 	float renderEmbed(const Discord::Embed &embed, float x, float y, float maxWidth,
 	                  const EmbedRenderCache *embedCache = nullptr);
 	void openKeyboard();
+	void openFileBrowser();
+	void refreshFileBrowser();
 	void showMessageOptions();
 
 	void scrollToBottom();
@@ -271,6 +285,8 @@ class MessageScreen : public Screen {
 	};
 	KeyboardResult runKeyboard(const std::string &hint, const std::string &initialText = "", bool multiline = true,
 	                           int maxLength = -1, const std::string &confirmLabel = "");
+	bool runCustomKeyboard(const std::string &hint, const std::string &initialText, bool multiline, int maxLength,
+	                       std::string &outText);
 
 	void renderReactionIcon();
 	void renderCallParticipants(float y, const std::vector<Discord::VoiceParticipant> &participants);

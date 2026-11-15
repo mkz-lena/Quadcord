@@ -17,6 +17,7 @@ struct User {
 	std::string global_name;
 	std::string avatar;
 	bool bot = false;
+	int premium_type = 0; // 0 = none, 1 = Nitro Classic, 2 = Nitro, 3 = Nitro Basic
 	UserStatus status = UserStatus::UNKNOWN;
 };
 
@@ -31,6 +32,8 @@ struct UserProfile {
 	std::string userId;
 	std::string bio;
 	std::string pronouns;
+	int accentColor = 0;
+	std::vector<int> themeColors;
 	bool loaded = false;
 };
 
@@ -92,6 +95,15 @@ struct VoiceParticipant {
 	bool deaf = false;
 };
 
+struct Emoji {
+	std::string id;
+	std::string name;
+	mutable std::string hex;
+	bool animated = false;
+
+	bool matches(const Emoji &other) const { return id == other.id && name == other.name; }
+};
+
 struct GuildFolder {
 	std::string id;
 	std::string name;
@@ -112,6 +124,7 @@ struct Guild {
 	std::vector<std::string> myRoles;
 	std::vector<Role> roles;
 	std::vector<Member> members;
+	std::vector<Emoji> emojis;
 	bool channelsLoaded = true;
 	bool loadedOnDemand = false;
 };
@@ -194,15 +207,6 @@ struct Sticker {
 	std::string id;
 	std::string name;
 	int format_type = 0;
-};
-
-struct Emoji {
-	std::string id;
-	std::string name;
-	mutable std::string hex;
-	bool animated = false;
-
-	bool matches(const Emoji &other) const { return id == other.id && name == other.name; }
 };
 
 struct Reaction {

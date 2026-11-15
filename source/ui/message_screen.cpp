@@ -15,6 +15,8 @@
 #include "utils/redraw.h"
 #include "utils/utf8_utils.h"
 #include <3ds.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <algorithm>
 #include <citro2d.h>
 #include <cmath>
@@ -316,7 +318,9 @@ MessageScreen::MessageScreen(const std::string &channelId, const std::string &ch
       currentScrollY(0.0f), totalContentHeight(0.0f), isMenuOpen(false), menuIndex(0),
       bottomMode(BottomScreenMode::TOPIC) {
 	emojiPicker = std::make_unique<EmojiPicker>();
+	customKeyboard = std::make_unique<CustomKeyboard>();
 	emojiPicker->setOnEmojiSelected([this](const std::string &name) {
+		Config::getInstance().addRecentEmoji(name);
 		if (selectedIndex < 0 || selectedIndex >= (int)messages.size()) {
 			return;
 		}
@@ -533,7 +537,7 @@ bool MessageScreen::isAnimating() const {
 	return currentScrollY != targetScrollY;
 }
 
-bool MessageScreen::hidesMenu() const { return bottomMode == BottomScreenMode::EMOJI_PICKER; }
+bool MessageScreen::hidesMenu() const { return bottomMode == BottomScreenMode::EMOJI_PICKER || keyboardActive; }
 
 void MessageScreen::flushMemberFetches() {
 	if (queuedMemberFetches.empty()) {
@@ -558,6 +562,124 @@ void MessageScreen::flushMemberFetches() {
 }
 
 void MessageScreen::update() {
+	if (keyboardActive && customKeyboard) {
+		if (customKeyboard->isFinished()) {
+			std::string resText = customKeyboard->getResult();
+			bool confirmed = customKeyboard->isConfirmed();
+			// trim
+			std::string content = resText;
+			if (!content.empty()) {
+				size_t first = content.find_first_not_of(" \n\r\t");
+				if (first != std::string::npos) {
+					content = content.substr(first, content.find_last_not_of(" \n\r\t") - first + 1);
+				} else {
+					content = "";
+				}
+			}
+
+			// record recent emojis
+			if (confirmed && !content.empty()) {
+				size_t cursor = 0;
+				while (cursor < content.size()) {
+					if (content[cursor] == '<') {
+						size_t close = content.find('>', cursor);
+						if (close != std::string::npos) {
+							Config::getInstance().addRecentEmoji(content.substr(cursor, close - cursor + 1));
+							cursor = close + 1;
+							continue;
+						}
+					}
+					size_t start = cursor;
+					uint32_t cp = Utils::Utf8::decodeNext(content, cursor);
+					if (Utils::Utf8::isEmoji(cp)) {
+						size_t seqCursor = start;
+						std::string seq = Utils::Utf8::getEmojiSequence(content, seqCursor);
+						Config::getInstance().addRecentEmoji(seq);
+						cursor = seqCursor;
+						continue;
+					}
+				}
+			}
+
+			Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
+			if (keyboardMode == 0) {
+				if (confirmed && !content.empty()) {
+					channelDrafts.erase(channelId);
+					Discord::Message optimisticMsg = createOptimisticMessage(content);
+					{
+						std::lock_guard<std::recursive_mutex> lock(messageMutex);
+						this->messages.push_back(optimisticMsg);
+						rebuildLayoutCache();
+						scrollToBottom();
+					}
+					client.sendMessage(
+					    channelId, content,
+					    [this, token = aliveToken, pendingId = optimisticMsg.id](const Discord::Message &sentMsg, bool success,
+					                                                             int errorCode) {
+						    if (!*token) {
+							    return;
+						    }
+						    this->handleMessageSendResult(pendingId, sentMsg, success, errorCode);
+					    },
+					    optimisticMsg.nonce);
+				} else if (!content.empty()) {
+					channelDrafts[channelId] = content;
+				} else {
+					channelDrafts.erase(channelId);
+				}
+			}
+			keyboardActive = false;
+		} else {
+			u32 kHeld = hidKeysHeld();
+			u32 kUp = hidKeysUp();
+			u32 kDown = hidKeysDown();
+			customKeyboard->update(kDown, kHeld, kUp);
+		}
+		flushMemberFetches();
+		return;
+	}
+	if (fileBrowserOpen) {
+		u32 kDown = hidKeysDown();
+		if (kDown & KEY_DOWN) {
+			if (fileBrowserIndex < (int)fileBrowserEntries.size() - 1) fileBrowserIndex++;
+		} else if (kDown & KEY_UP) {
+			if (fileBrowserIndex > 0) fileBrowserIndex--;
+		} else if (kDown & KEY_A) {
+			if (fileBrowserIndex >= 0 && fileBrowserIndex < (int)fileBrowserEntries.size()) {
+				std::string name = fileBrowserEntries[fileBrowserIndex];
+				if (fileBrowserIsDir[fileBrowserIndex]) {
+					if (name == "..") {
+						size_t pos = fileBrowserDir.find_last_of('/');
+						if (pos != std::string::npos && pos > 0) {
+							fileBrowserDir = fileBrowserDir.substr(0, pos);
+						} else {
+							fileBrowserDir = "sdmc:/";
+						}
+					} else {
+						if (fileBrowserDir.back() != '/') fileBrowserDir += "/";
+						fileBrowserDir += name;
+					}
+					fileBrowserIndex = 0;
+					fileBrowserScroll = 0;
+					refreshFileBrowser();
+				} else {
+					// upload file
+					std::string fullPath = fileBrowserDir;
+					if (fullPath.back() != '/') fullPath += "/";
+					fullPath += name;
+					fileBrowserOpen = false;
+					Discord::DiscordClient::getInstance().sendFile(channelId, fullPath, "", 
+					    [this](const Discord::Message &msg, bool success, int code) {
+						    if (!success) ScreenManager::getInstance().showToast("Upload failed");
+					    });
+				}
+			}
+		} else if (kDown & KEY_B) {
+			fileBrowserOpen = false;
+		}
+		flushMemberFetches();
+		return;
+	}
 	flushMemberFetches();
 
 	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
@@ -622,6 +744,7 @@ void MessageScreen::update() {
 			if (!isMenuOpen && !isLoading) {
 				float reactBtnX = isScrollBtnVisible ? (btnX - btnW - 8.0f) : btnX;
 				float callBtnX = reactBtnX - btnW - 8.0f;
+				float fileBtnX = callBtnX - btnW - 8.0f;
 
 				auto isTouched = [&](float x, float y, float w, float h) {
 					return touch.px >= x && touch.px <= x + w && touch.py >= y && touch.py <= y + h;
@@ -637,6 +760,9 @@ void MessageScreen::update() {
 					handled = true;
 				} else if (isCallableChannel() && !isCallActive() && isTouched(callBtnX, btnY, btnW, btnH)) {
 					startCall();
+					handled = true;
+				} else if (isTouched(fileBtnX, btnY, btnW, btnH)) {
+					openFileBrowser();
 					handled = true;
 				}
 			}
@@ -787,7 +913,9 @@ void MessageScreen::update() {
 					                                   : messages[selectedIndex].author.global_name;
 
 					updateLock.unlock();
+					keyboardMode = 1;
 					auto res = runKeyboard(TR("common.reply_hint"), channelDrafts[channelId]);
+					keyboardMode = 0;
 					updateLock.lock();
 
 					if (res.button == SWKBD_BUTTON_RIGHT && !res.text.empty()) {
@@ -822,7 +950,9 @@ void MessageScreen::update() {
 					std::string oldContent = messages[selectedIndex].content;
 
 					updateLock.unlock();
+					keyboardMode = 2;
 					auto res = runKeyboard(TR("common.message_hint"), oldContent);
+					keyboardMode = 0;
 					updateLock.lock();
 
 					if (res.button == SWKBD_BUTTON_RIGHT && !res.text.empty() && res.text != oldContent) {
@@ -1539,6 +1669,19 @@ float MessageScreen::drawAuthorHeader(const Discord::Message &msg, float x, floa
 	}
 
 	u32 nameColor = authorNameColor(msg);
+	// Nitro profile colors
+	if (Config::getInstance().isNitroColorsEnabled()) {
+		Discord::UserProfile prof = client.getUserProfile(msg.author.id);
+		if (!prof.loaded) {
+			client.fetchUserProfile(msg.author.id);
+		} else if (!prof.themeColors.empty()) {
+			int c = prof.themeColors[0];
+			nameColor = C2D_Color32((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, 255);
+		} else if (prof.accentColor != 0) {
+			int c = prof.accentColor;
+			nameColor = C2D_Color32((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, 255);
+		}
+	}
 
 	float avatarX = 10.0f;
 	float avatarSize = 28.0f;
@@ -1555,6 +1698,25 @@ float MessageScreen::drawAuthorHeader(const Discord::Message &msg, float x, floa
 		C2D_DrawRectSolid(avatarX, y, 0.5f, avatarSize, avatarSize, C2D_Color32(80, 80, 100, 255));
 		std::string initial = Utils::Utf8::getFirstChar(displayName.empty() ? "?" : displayName);
 		drawText(avatarX + 10, y + 8, 0.6f, 0.45f, 0.45f, C2D_Color32(255, 255, 255, 255), initial);
+	}
+
+	// Presence dot
+	{
+		Discord::UserStatus st = client.getUserStatus(msg.author.id);
+		if (st != Discord::UserStatus::UNKNOWN) {
+			u32 dotColor = C2D_Color32(128, 128, 128, 255);
+			switch (st) {
+			case Discord::UserStatus::ONLINE: dotColor = C2D_Color32(67, 181, 129, 255); break;
+			case Discord::UserStatus::IDLE: dotColor = C2D_Color32(250, 166, 26, 255); break;
+			case Discord::UserStatus::DND: dotColor = C2D_Color32(237, 66, 69, 255); break;
+			case Discord::UserStatus::INVISIBLE:
+			case Discord::UserStatus::OFFLINE: dotColor = C2D_Color32(116, 127, 141, 255); break;
+			default: break;
+			}
+			float dotX = avatarX + avatarSize - 6.0f;
+			float dotY = y + avatarSize - 6.0f;
+			C2D_DrawCircleSolid(dotX, dotY, 0.51f, 5.0f, dotColor);
+		}
 	}
 
 	drawRichText(x, y - 2.0f, 0.5f, 0.45f, 0.45f, nameColor, displayName);
@@ -2470,7 +2632,9 @@ void MessageScreen::updateModal(u32 kDown, u32 kHeld, std::unique_lock<std::recu
 		const std::string initial = field.value;
 
 		updateLock.unlock();
+		keyboardMode = 4;
 		auto res = runKeyboard(hint, initial, multiline, maxLen, TR("common.ok"));
+		keyboardMode = 0;
 		updateLock.lock();
 
 		if (res.button == SWKBD_BUTTON_RIGHT) {
@@ -3136,6 +3300,32 @@ void MessageScreen::renderTop(C3D_RenderTarget *target) {
 }
 
 void MessageScreen::renderBottom(C3D_RenderTarget *target) {
+	if (fileBrowserOpen) {
+		C2D_DrawRectSolid(0, 0, 0.0f, 320, 240, ScreenManager::colorBackgroundDark());
+		drawText(8, 8, 0.1f, 0.45f, 0.45f, ScreenManager::colorText(), fileBrowserDir.c_str());
+		int visible = 8;
+		int start = fileBrowserScroll;
+		if (fileBrowserIndex >= start + visible) start = fileBrowserIndex - visible + 1;
+		if (fileBrowserIndex < start) start = fileBrowserIndex;
+		fileBrowserScroll = start;
+		for (int i = 0; i < visible; i++) {
+			int idx = start + i;
+			if (idx >= (int)fileBrowserEntries.size()) break;
+			float y = 30.0f + i * 24.0f;
+			u32 col = (idx == fileBrowserIndex) ? ScreenManager::colorSelection() : ScreenManager::colorText();
+			std::string label = fileBrowserEntries[idx];
+			if (fileBrowserIsDir[idx]) label = "[D] " + label;
+			drawText(8, y, 0.1f, 0.4f, 0.4f, col, label.c_str());
+		}
+		drawText(8, 220, 0.1f, 0.35f, 0.35f, ScreenManager::colorTextMuted(), "A:open  B:close");
+		return;
+	}
+
+	if (keyboardActive && customKeyboard) {
+		customKeyboard->render(target);
+		return;
+	}
+
 	C2D_DrawRectSolid(0, 0, 0.0f, 320, 240, ScreenManager::colorBackgroundDark());
 
 	if (bottomMode == BottomScreenMode::EMOJI_PICKER) {
@@ -3356,6 +3546,44 @@ void MessageScreen::fetchOlderMessages() {
 	    });
 }
 
+void MessageScreen::openFileBrowser() {
+	fileBrowserDir = "sdmc:/";
+	fileBrowserOpen = true;
+	fileBrowserIndex = 0;
+	fileBrowserScroll = 0;
+	refreshFileBrowser();
+}
+
+void MessageScreen::refreshFileBrowser() {
+	fileBrowserEntries.clear();
+	fileBrowserIsDir.clear();
+	DIR *dir = opendir(fileBrowserDir.c_str());
+	if (!dir) {
+		return;
+	}
+	struct dirent *ent;
+	// parent
+	if (fileBrowserDir != "sdmc:/") {
+		fileBrowserEntries.push_back("..");
+		fileBrowserIsDir.push_back(true);
+	}
+	while ((ent = readdir(dir)) != NULL) {
+		std::string name = ent->d_name;
+		if (name == "." || name == "..") continue;
+		std::string full = fileBrowserDir;
+		if (!full.empty() && full.back() != '/') full += "/";
+		full += name;
+		struct stat st;
+		bool isDir = false;
+		if (stat(full.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+			isDir = true;
+		}
+		fileBrowserEntries.push_back(name);
+		fileBrowserIsDir.push_back(isDir);
+	}
+	closedir(dir);
+}
+
 void MessageScreen::openKeyboard() {
 	auto &client = Discord::DiscordClient::getInstance();
 	if (!client.canSendMessage(channelId)) {
@@ -3365,60 +3593,49 @@ void MessageScreen::openKeyboard() {
 
 	client.triggerTypingIndicator(channelId);
 
-	auto res = runKeyboard(TR("common.message_hint"), channelDrafts[channelId]);
-
-	if (res.button == SWKBD_BUTTON_RIGHT && !res.text.empty()) {
-		channelDrafts.erase(channelId);
-		Discord::Message optimisticMsg = createOptimisticMessage(res.text);
-		{
-			std::lock_guard<std::recursive_mutex> lock(messageMutex);
-			this->messages.push_back(optimisticMsg);
-			rebuildLayoutCache();
-			scrollToBottom();
-		}
-
-		client.sendMessage(
-		    channelId, res.text,
-		    [this, token = aliveToken, pendingId = optimisticMsg.id](const Discord::Message &sentMsg, bool success,
-		                                                             int errorCode) {
-			    if (!*token) {
-				    return;
-			    }
-			    this->handleMessageSendResult(pendingId, sentMsg, success, errorCode);
-		    },
-		    optimisticMsg.nonce);
-	} else if (!res.text.empty()) {
-		channelDrafts[channelId] = res.text;
-	} else {
-		channelDrafts.erase(channelId);
+	if (!guildId.empty() && guildId != "DM") {
+		Discord::DiscordClient::getInstance().fetchGuildDetails(guildId);
 	}
+
+	if (!customKeyboard) {
+		customKeyboard = std::make_unique<CustomKeyboard>();
+	}
+	customKeyboard->open(channelDrafts.count(channelId) ? channelDrafts[channelId] : std::string(), -1, true);
+	customKeyboard->setGuildId(guildId);
+	customKeyboard->setNitro(client.getCurrentUser().premium_type >= 1);
+	keyboardActive = true;
+	keyboardMode = 0;
 }
 
 MessageScreen::KeyboardResult MessageScreen::runKeyboard(const std::string &hint, const std::string &initialText,
                                                          bool multiline, int maxLength,
                                                          const std::string &confirmLabel) {
-	SwkbdState swkbd;
-	char mybuf[2000];
-	mybuf[0] = '\0';
-	swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, maxLength);
-	u32 features =
-	    SWKBD_PREDICTIVE_INPUT | SWKBD_DARKEN_TOP_SCREEN | SWKBD_ALLOW_HOME | SWKBD_ALLOW_RESET | SWKBD_ALLOW_POWER;
-	if (multiline) {
-		features |= SWKBD_MULTILINE;
+	if (!customKeyboard) {
+		customKeyboard = std::make_unique<CustomKeyboard>();
 	}
-	swkbdSetFeatures(&swkbd, features);
+	int ml = (maxLength < 0) ? 2000 : maxLength;
+	customKeyboard->open(initialText, ml, multiline);
+	customKeyboard->setGuildId(guildId);
+	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
+	customKeyboard->setNitro(client.getCurrentUser().premium_type >= 1);
+	keyboardActive = true;
 
-	if (!initialText.empty()) {
-		swkbdSetInitialText(&swkbd, initialText.c_str());
+	while (!customKeyboard->isFinished()) {
+		hidScanInput();
+		u32 kDown = hidKeysDown();
+		u32 kHeld = hidKeysHeld();
+		u32 kUp = hidKeysUp();
+		customKeyboard->update(kDown, kHeld, kUp);
+		ScreenManager::getInstance().update();
+		Discord::DiscordClient::getInstance().update();
+		UI::EmojiManager::getInstance().update();
+		UI::ImageManager::getInstance().update();
+		ScreenManager::getInstance().render();
+		gspWaitForVBlank();
 	}
-	swkbdSetHintText(&swkbd, hint.c_str());
-	swkbdSetButton(&swkbd, SWKBD_BUTTON_LEFT, TR("common.cancel").c_str(), true);
-	const std::string rightLabel = confirmLabel.empty() ? TR("common.send") : confirmLabel;
-	swkbdSetButton(&swkbd, SWKBD_BUTTON_RIGHT, rightLabel.c_str(), true);
 
-	SwkbdButton button = swkbdInputText(&swkbd, mybuf, sizeof(mybuf));
-	std::string content = mybuf;
-
+	keyboardActive = false;
+	std::string content = customKeyboard->getResult();
 	if (!content.empty()) {
 		size_t first = content.find_first_not_of(" \n\r\t");
 		if (first != std::string::npos) {
@@ -3428,7 +3645,8 @@ MessageScreen::KeyboardResult MessageScreen::runKeyboard(const std::string &hint
 		}
 	}
 
-	return {(int)button, content};
+	int button = customKeyboard->isConfirmed() ? SWKBD_BUTTON_RIGHT : SWKBD_BUTTON_LEFT;
+	return {button, content};
 }
 
 void MessageScreen::showMessageOptions() {
@@ -4338,6 +4556,19 @@ void MessageScreen::renderReactionIcon() {
 		C2D_PlainImageTint(&tint, ScreenManager::colorText(), 1.0f);
 		C2D_DrawImageAt(img, callBtnX + (btnW - iconSize) / 2.0f, btnY + (btnH - iconSize) / 2.0f, 0.55f, &tint,
 		                iconSize / callTex->width, iconSize / callTex->height);
+	}
+
+	float fileBtnX = callBtnX - btnW - 8.0f;
+	drawRoundedRect(fileBtnX, btnY, 0.54f, btnW, btnH, 8.0f, ScreenManager::colorBackgroundLight());
+	C3D_Tex *fileTex = UI::ImageManager::getInstance().getLocalImage("romfs:/discord-icons/folder.png");
+	if (fileTex) {
+		float iconSize = 20.0f;
+		Tex3DS_SubTexture subtex = {(u16)fileTex->width, (u16)fileTex->height, 0.0f, 1.0f, 1.0f, 0.0f};
+		C2D_Image img = {fileTex, &subtex};
+		C2D_ImageTint tint;
+		C2D_PlainImageTint(&tint, ScreenManager::colorText(), 1.0f);
+		C2D_DrawImageAt(img, fileBtnX + (btnW - iconSize) / 2.0f, btnY + (btnH - iconSize) / 2.0f, 0.55f, &tint,
+		                iconSize / fileTex->width, iconSize / fileTex->height);
 	}
 }
 

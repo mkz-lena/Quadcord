@@ -1,4 +1,5 @@
 #include "discord/discord_client.h"
+#include "utils/file_utils.h"
 #include "core/config.h"
 #include "discord/avatar_cache.h"
 #include "core/i18n.h"
@@ -1326,6 +1327,7 @@ struct DiscordClient::ReadyData {
 	std::vector<GuildFolder> folders;
 	std::map<std::string, GuildNotificationSettings> notificationSettings;
 	std::map<std::string, ReadState> readStates;
+	std::map<std::string, UserStatus> presences;
 	std::string resumeGatewayUrl;
 };
 
@@ -1363,6 +1365,22 @@ bool DiscordClient::parseReady(JsonPull &p, ReadyData &ready, rapidjson::Documen
 				ready.user = parseUserObject(item);
 			}
 			return true;
+		}
+		if (key == "presences") {
+			return forEachElement(p, item, [&](const rapidjson::Value &pres) {
+				std::string uid;
+				if (pres.HasMember("user") && pres["user"].IsObject()) {
+					uid = Utils::Json::getString(pres["user"], "id");
+				}
+				if (uid.empty()) {
+					uid = Utils::Json::getString(pres, "user_id");
+				}
+				if (uid.empty()) {
+					return;
+				}
+				std::string st = Utils::Json::getString(pres, "status");
+				ready.presences[uid] = stringToStatus(st);
+			});
 		}
 		if (key == "sessions") {
 			return forEachElement(p, item, [&](const rapidjson::Value &s) {
@@ -1552,6 +1570,10 @@ bool DiscordClient::parseGuildFields(JsonPull &p, Guild &guild, const std::strin
 			guild.channels.clear();
 			return parseChannelArray(p, item, guild.channels, keepDetails);
 		}
+		if (key == "emojis" && keepDetails) {
+			guild.emojis.clear();
+			return forEachElement(p, item, [&](const rapidjson::Value &e) { guild.emojis.push_back(parseEmojiObject(e)); });
+		}
 		if (key == "voice_states" && voiceStates) {
 			return forEachElement(p, item, [&](const rapidjson::Value &state) {
 				rapidjson::Value copy(state, voiceStates->GetAllocator());
@@ -1699,6 +1721,7 @@ void DiscordClient::applyReady(ReadyData &ready, rapidjson::Document &voiceState
 		resumeGatewayUrl.pop_back();
 	}
 	currentUser = ready.user;
+	presenceMap = ready.presences;
 	guilds = std::move(ready.guilds);
 	privateChannels = std::move(ready.privateChannels);
 	folders = std::move(ready.folders);
@@ -1711,6 +1734,10 @@ void DiscordClient::applyReady(ReadyData &ready, rapidjson::Document &voiceState
 	applyVoiceStatesLocked(voiceStates);
 
 	Config::getInstance().updateCurrentAccountName(currentUser.username);
+
+	if (!Config::getInstance().getCustomStatus().empty()) {
+		updatePresence(UserStatus::ONLINE, Config::getInstance().getCustomStatus());
+	}
 
 	setState(ConnectionState::READY, "Ready! Logged in as " + currentUser.username);
 }
@@ -1754,6 +1781,9 @@ void DiscordClient::applyGuildDetailsLocked(Guild &guild, Guild &details) {
 	guild.approximatePresenceCount = details.approximatePresenceCount;
 	if (!details.roles.empty()) {
 		guild.roles = std::move(details.roles);
+	}
+	if (!details.emojis.empty()) {
+		guild.emojis = std::move(details.emojis);
 	}
 }
 
@@ -2281,12 +2311,20 @@ void DiscordClient::handlePresenceUpdate(const rapidjson::Value &d) {
 		return;
 	}
 	std::string userId = Utils::Json::getString(d["user"], "id");
-
+	std::string statusStr = Utils::Json::getString(d, "status");
+	UserStatus st = stringToStatus(statusStr);
+	presenceMap[userId] = st;
 	if (userId == currentUser.id) {
-		std::string statusStr = Utils::Json::getString(d, "status");
-		currentUser.status = stringToStatus(statusStr);
+		currentUser.status = st;
 		Logger::log("[Gateway] Own presence updated via PRESENCE_UPDATE to %s", statusStr.c_str());
 	}
+}
+
+Discord::UserStatus DiscordClient::getUserStatus(const std::string &userId) {
+	std::lock_guard<std::recursive_mutex> lock(clientMutex);
+	auto it = presenceMap.find(userId);
+	if (it != presenceMap.end()) return it->second;
+	return Discord::UserStatus::UNKNOWN;
 }
 
 static std::string parseMuteEndTime(const rapidjson::Value &obj) {
@@ -2593,6 +2631,7 @@ User DiscordClient::parseUserObject(const rapidjson::Value &uObj) {
 	u.avatar = Utils::Json::getString(uObj, "avatar");
 	u.discriminator = Utils::Json::getString(uObj, "discriminator");
 	u.bot = Utils::Json::getBool(uObj, "bot");
+	u.premium_type = Utils::Json::getInt(uObj, "premium_type", 0);
 	return u;
 }
 
@@ -3265,6 +3304,7 @@ void DiscordClient::sendIdentify() {
 	                   "\"compress\": false,"
 	                   // LAZY_USER_NOTES | VERSIONED_READ_STATES | VERSIONED_USER_GUILD_SETTINGS
 	                   "\"capabilities\": 13,"
+	                   "\"intents\": 57091,"
 	                   "\"large_threshold\": 50"
 	                   "}"
 	                   "}";
@@ -3644,6 +3684,14 @@ void DiscordClient::fetchUserProfile(const std::string &userId) {
 			                                               if (profile.bio.empty()) {
 				                                               profile.bio = Utils::Json::getString(up, "bio");
 			                                               }
+			                                               if (up.HasMember("accent_color") && up["accent_color"].IsInt()) {
+				                                               profile.accentColor = up["accent_color"].GetInt();
+			                                               }
+			                                               if (up.HasMember("theme_colors") && up["theme_colors"].IsArray()) {
+				                                               for (auto &c : up["theme_colors"].GetArray()) {
+					                                               if (c.IsInt()) profile.themeColors.push_back(c.GetInt());
+				                                               }
+			                                               }
 		                                               }
 
 		                                               std::lock_guard<std::recursive_mutex> lock(clientMutex);
@@ -3800,6 +3848,67 @@ uint64_t DiscordClient::computeOverwrites(uint64_t basePermissions, const std::s
 void DiscordClient::sendMessage(const std::string &channelId, const std::string &content, SendMessageCallback cb,
                                 const std::string &nonce) {
 	postMessage(channelId, content, nonce, "", cb);
+}
+
+void DiscordClient::sendFile(const std::string &channelId, const std::string &filePath, const std::string &content,
+                             SendMessageCallback cb) {
+	if (token.empty() || channelId.empty() || filePath.empty()) {
+		if (cb) cb(Message(), false, 0);
+		return;
+	}
+
+	std::vector<unsigned char> fileData = Utils::File::readFileBinary(filePath);
+	if (fileData.empty()) {
+		Logger::log("[Upload] Failed to read file: %s", filePath.c_str());
+		if (cb) cb(Message(), false, 0);
+		return;
+	}
+
+	// filename
+	std::string filename = filePath;
+	size_t slash = filename.find_last_of("/\\");
+	if (slash != std::string::npos) filename = filename.substr(slash + 1);
+
+	std::string boundary = "----TriCordBoundary" + std::to_string(osGetTime());
+
+	std::string body;
+	body += "--" + boundary + "\r\n";
+	body += "Content-Disposition: form-data; name=\"payload_json\"\r\n";
+	body += "Content-Type: application/json\r\n\r\n";
+	rapidjson::StringBuffer s;
+	rapidjson::Writer<rapidjson::StringBuffer> writer(s);
+	writer.StartObject();
+	writer.Key("content");
+	writer.String(content.c_str());
+	writer.Key("tts");
+	writer.Bool(false);
+	writer.EndObject();
+	body += s.GetString();
+	body += "\r\n";
+
+	body += "--" + boundary + "\r\n";
+	body += "Content-Disposition: form-data; name=\"files[0]\"; filename=\"" + filename + "\"\r\n";
+	body += "Content-Type: application/octet-stream\r\n\r\n";
+	body.append((const char *)fileData.data(), fileData.size());
+	body += "\r\n";
+	body += "--" + boundary + "--\r\n";
+
+	std::string url = "https://discord.com/api/v10/channels/" + channelId + "/messages";
+	std::map<std::string, std::string> headers;
+	headers["Authorization"] = token;
+	headers["Content-Type"] = "multipart/form-data; boundary=" + boundary;
+
+	Network::NetworkManager::getInstance().enqueue(
+	    url, "POST", body, Network::RequestPriority::REALTIME,
+	    [this, cb](const Network::HttpResponse &resp) {
+		    if (!resp.success || resp.statusCode >= 400) {
+			    Logger::log("Failed to upload file: %d (%s)", (int)resp.statusCode, resp.error.c_str());
+			    if (cb) cb(Message(), false, (int)resp.statusCode);
+			    return;
+		    }
+		    if (cb) cb(parseSingleMessage(resp.body), true, (int)resp.statusCode);
+	    },
+	    headers);
 }
 
 void DiscordClient::sendReply(const std::string &channelId, const std::string &content, const std::string &replyId,
@@ -4260,6 +4369,7 @@ void DiscordClient::requestMembers(const std::string &guildId, const std::vector
 	writer.EndObject();
 	writer.EndObject();
 
+	Logger::log("[Presence] payload: %s", s.GetString());
 	queueSend(s.GetString());
 	Logger::log("[Gateway] Requested %zu members for guild %s", userIds.size(), guildId.c_str());
 }
@@ -4697,11 +4807,13 @@ void DiscordClient::updateVoiceState(const std::string &guildId, const std::stri
 	writer.EndObject();
 	writer.EndObject();
 
+	Logger::log("[Presence] payload: %s", s.GetString());
 	queueSend(s.GetString());
 	Logger::log("[Voice] Sent Update Voice State (Op 4) guild=%s channel=%s", guildId.c_str(), channelId.c_str());
 }
 
-void DiscordClient::updatePresence(UserStatus status) {
+void DiscordClient::updatePresence(UserStatus status, const std::string &customStatus) {
+	Logger::log("[Presence] updatePresence status=%d custom=%s", (int)status, customStatus.c_str());
 	std::string statusStr = statusToString(status);
 
 	rapidjson::StringBuffer s;
@@ -4715,10 +4827,20 @@ void DiscordClient::updatePresence(UserStatus status) {
 	if (status == UserStatus::IDLE) {
 		writer.Uint64((uint64_t)time(NULL) * 1000);
 	} else {
-		writer.Int(0);
+		writer.Null();
 	}
 	writer.Key("activities");
 	writer.StartArray();
+	if (!customStatus.empty()) {
+		writer.StartObject();
+		writer.Key("type");
+		writer.Int(4); // custom status
+		writer.Key("name");
+		writer.String("Custom Status");
+		writer.Key("state");
+		writer.String(customStatus.c_str());
+		writer.EndObject();
+	}
 	writer.EndArray();
 	writer.Key("status");
 	writer.String(statusStr.c_str());
@@ -4727,19 +4849,43 @@ void DiscordClient::updatePresence(UserStatus status) {
 	writer.EndObject();
 	writer.EndObject();
 
+	Logger::log("[Presence] payload: %s", s.GetString());
 	queueSend(s.GetString());
 
 	if (!token.empty()) {
 		std::string url = "https://discord.com/api/v10/users/@me/settings";
-		std::string body = "{\"status\":\"" + statusStr + "\"}";
+		std::string escaped = customStatus;
+		// minimal JSON escape
+		std::string out;
+		for (char c : escaped) {
+			if (c == '"' || c == '\\') {
+				out += '\\';
+				out += c;
+			} else if (c == '\n') {
+				out += "\\n";
+			} else if (c == '\r') {
+				out += "\\r";
+			} else if (c == '\t') {
+				out += "\\t";
+			} else {
+				out += c;
+			}
+		}
+		std::string body = "{\"status\":\"" + statusStr + "\"";
+		if (!customStatus.empty()) {
+			body += ",\"custom_status\":{\"text\":\"" + out + "\"}";
+		} else {
+			body += ",\"custom_status\":null";
+		}
+		body += "}";
 
 		Network::NetworkManager::getInstance().enqueue(
 		    url, "PATCH", body, Network::RequestPriority::INTERACTIVE,
 		    [statusStr](const Network::HttpResponse &resp) {
 			    if (resp.success) {
-				    Logger::log("[API] Successfully updated global status to %s", statusStr.c_str());
+				    Logger::log("[API] Successfully updated settings: %d", (int)resp.statusCode);
 			    } else {
-				    Logger::log("[API] Failed to update global status: %d %s", resp.statusCode, resp.error.c_str());
+				    Logger::log("[API] Failed to update settings: %d %s", (int)resp.statusCode, resp.error.c_str());
 			    }
 		    },
 		    {{"Authorization", token}});

@@ -50,7 +50,7 @@ INCLUDES	:=	include include/core include/ui library library/stb_image library/qr
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 ROMFS		:=	romfs
-APP_TITLE	:=	TriCord
+APP_TITLE	:=	Quadcord
 APP_DESCRIPTION	:=	Discord client for Nintendo 3DS
 APP_AUTHOR	:=	2b-zipper
 

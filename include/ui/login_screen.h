@@ -4,7 +4,9 @@
 #include "discord/discord_client.h"
 #include "discord/remote_auth.h"
 #include "ui/country_picker.h"
+#include "ui/custom_keyboard.h"
 #include "ui/screen_manager.h"
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -33,6 +35,10 @@ class LoginScreen : public Screen {
 	std::string password;
 	bool phoneLogin = false;
 	CountryPicker countryPicker;
+
+	std::unique_ptr<CustomKeyboard> customKeyboard;
+	bool keyboardActive = false;
+	std::string *keyboardTarget = nullptr;
 
 	Prompt prompt = Prompt::NONE;
 	std::string promptCode;

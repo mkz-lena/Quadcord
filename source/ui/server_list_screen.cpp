@@ -1593,6 +1593,25 @@ void ServerListScreen::drawChannelList(float x, float y, float alpha) {
 				}
 			}
 
+			if (ch.type == 1 && !ch.recipients.empty()) {
+				Discord::UserStatus st = Discord::DiscordClient::getInstance().getUserStatus(ch.recipients[0].id);
+				if (st == Discord::UserStatus::UNKNOWN) st = Discord::UserStatus::OFFLINE;
+				{
+					u32 dotColor = C2D_Color32(128, 128, 128, 255);
+					switch (st) {
+					case Discord::UserStatus::ONLINE: dotColor = C2D_Color32(67, 181, 129, 255); break;
+					case Discord::UserStatus::IDLE: dotColor = C2D_Color32(250, 166, 26, 255); break;
+					case Discord::UserStatus::DND: dotColor = C2D_Color32(237, 66, 69, 255); break;
+					case Discord::UserStatus::INVISIBLE:
+					case Discord::UserStatus::OFFLINE: dotColor = C2D_Color32(116, 127, 141, 255); break;
+					default: break;
+					}
+					float dotX = avatarX + avatarSize - 4.0f;
+					float dotY = dmY + (dmHeight - avatarSize) / 2.0f + avatarSize - 4.0f;
+					C2D_DrawCircleSolid(dotX, dotY, 0.51f, 4.0f, dotColor);
+				}
+			}
+
 			float nameX = avatarX + avatarSize + 8.0f;
 			float nameLimit = 400.0f - nameX - 10.0f;
 			drawRichText(nameX, dmY + dmHeight / 2.0f - 8.0f, 0.5f, 0.55f, 0.55f, dmColor,
