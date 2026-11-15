@@ -16,7 +16,7 @@ jobs:
 
       - name: Build and install bannertool
         run: |
-          set -euxo pipefail
+          set -eux
 
           # The upstream Linux release requires a newer glibc/libstdc++ than
           # the devkitARM container provides. Build it in this container so
