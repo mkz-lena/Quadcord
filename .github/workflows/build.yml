@@ -20,7 +20,9 @@ jobs:
           curl -sL "https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz" -o /tmp/bt/bt.tar.gz
           tar -xzf /tmp/bt/bt.tar.gz -C /tmp/bt
           find /tmp/bt -name bannertool -type f -exec chmod +x {} \;
-          echo "/tmp/bt" >> $GITHUB_PATH
+          BTDIR=$(dirname $(find /tmp/bt -name bannertool -type f | head -1))
+          echo "$BTDIR" >> $GITHUB_PATH
+          export PATH="$BTDIR:$PATH"
           ls /tmp/bt
           which bannertool || find /tmp/bt -name bannertool
 
