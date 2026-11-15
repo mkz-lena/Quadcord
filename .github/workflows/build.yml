@@ -14,22 +14,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install bannertool
+      - name: Build and install bannertool
         run: |
-          mkdir -p /tmp/bt
-          curl -sL "https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz" -o /tmp/bt/bt.tar.gz
-          tar -xzf /tmp/bt/bt.tar.gz -C /tmp/bt
-          find /tmp/bt -name bannertool -type f -exec chmod +x {} \;
-          BTDIR=$(dirname $(find /tmp/bt -name bannertool -type f | head -1))
-          echo "$BTDIR" >> $GITHUB_PATH
-          export PATH="$BTDIR:$PATH"
-          ls /tmp/bt
-          which bannertool || find /tmp/bt -name bannertool
+          set -euxo pipefail
+
+          # The upstream Linux release requires a newer glibc/libstdc++ than
+          # the devkitARM container provides. Build it in this container so
+          # the resulting executable uses compatible system libraries.
+          mkdir -p /tmp/cmake /tmp/bannertool-src
+          curl --fail --location --silent --show-error \
+            https://github.com/Kitware/CMake/releases/download/v3.28.6/cmake-3.28.6-linux-x86_64.tar.gz \
+            -o /tmp/cmake.tar.gz
+          tar -xzf /tmp/cmake.tar.gz --strip-components=1 -C /tmp/cmake
+
+          curl --fail --location --silent --show-error \
+            https://github.com/carstene1ns/3ds-bannertool/archive/refs/tags/1.2.3.tar.gz \
+            -o /tmp/bannertool.tar.gz
+          tar -xzf /tmp/bannertool.tar.gz --strip-components=1 -C /tmp/bannertool-src
+
+          /tmp/cmake/bin/cmake -S /tmp/bannertool-src -B /tmp/bannertool-build \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/bt
+          /tmp/cmake/bin/cmake --build /tmp/bannertool-build --parallel
+          /tmp/cmake/bin/cmake --install /tmp/bannertool-build
+          test -x /tmp/bt/bin/bannertool
+          echo /tmp/bt/bin >> "$GITHUB_PATH"
 
       - name: Build
         env:
           DEVKITARM: /opt/devkitpro/devkitARM
-          PATH: /tmp/bt:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:/usr/bin:/bin
+          PATH: /tmp/bt/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:/usr/bin:/bin
         run: |
           make -j$(nproc)
 
